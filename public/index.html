@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>LAN-STRIKE</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080b10;color:#fff;font-family:Arial,sans-serif}#game{position:fixed;inset:0}#hud{position:fixed;inset:0;pointer-events:none}.top{display:flex;justify-content:space-between;padding:18px;font-weight:700;text-shadow:0 2px 8px #000}.badge{background:#111a;padding:8px 12px;border:1px solid #ffffff22;border-radius:10px}.cross{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)}.cross:before,.cross:after{content:"";position:absolute;background:#fff;box-shadow:0 0 6px #000}.cross:before{width:2px;height:22px;left:10px}.cross:after{height:2px;width:22px;top:10px}.bottom{position:absolute;left:18px;right:18px;bottom:18px;display:flex;justify-content:space-between;align-items:end}.hp{font-size:22px;font-weight:800}.bar{width:180px;height:8px;background:#ffffff22;border-radius:9px;overflow:hidden;margin-top:6px}.fill{height:100%;width:100%;background:#56e39f}.hint{font-size:12px;opacity:.7;text-align:right}.panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:24px;width:min(90vw,390px);background:#0e131b;backdrop-filter:blur(12px);border:1px solid #ffffff1c;border-radius:18px;box-shadow:0 20px 70px #0008;text-align:center;z-index:5}.panel h1{margin:0 0 8px;font-size:32px;letter-spacing:2px}.panel p{opacity:.7;font-size:14px;line-height:1.5}.panel button{border:0;border-radius:12px;padding:13px 20px;background:#fff;color:#080b10;font-weight:800;font-size:15px}.hidden{display:none}.notice{position:absolute;top:72px;left:50%;transform:translateX(-50%);padding:8px 12px;border-radius:10px;background:#0008;font-size:12px;opacity:0;transition:.2s}.notice.show{opacity:1}
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud">
+    <div class="top"><div class="badge">LAN-STRIKE</div><div class="badge" id="players">Players: 1</div></div>
+    <div class="cross"></div>
+    <div class="notice" id="notice"></div>
+    <div class="bottom"><div><div class="hp">❤ <span id="hp">100</span></div><div class="bar"><div class="fill" id="fill"></div></div></div><div class="hint">WASD move · Mouse look · Click shoot · ESC unlock</div></div>
+  </div>
+  <div class="panel" id="menu"><h1>LAN-STRIKE</h1><p>A small browser FPS prototype designed for devices connected to the same local network.</p><button id="start">START MATCH</button></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111820);
+    scene.fog = new THREE.Fog(0x111820, 18, 75);
+    const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, .05, 150);
+    camera.position.set(0,1.6,7);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
+    document.getElementById('game').appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xcfe6ff,0x182018,2.2));
+    const sun = new THREE.DirectionalLight(0xffffff,2); sun.position.set(10,20,5); scene.add(sun);
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshStandardMaterial({color:0x273039,roughness:1}));
+    floor.rotation.x=-Math.PI/2; scene.add(floor);
+    const grid = new THREE.GridHelper(100,100,0x46515a,0x303940); grid.position.y=.01; scene.add(grid);
+
+    const walls=[];
+    function box(x,y,z,w,h,d,c=0x56616b){
+      const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color:c}));
+      m.position.set(x,y,z); scene.add(m); walls.push(m); return m;
+    }
+    box(0,2,-28,56,4,1); box(0,2,28,56,4,1); box(-28,2,0,1,4,56); box(28,2,0,1,4,56);
+    box(-8,1,-8,5,2,5,0x3e4b55); box(9,1,-5,7,2,4,0x3e4b55); box(-10,1,10,4,2,7,0x3e4b55); box(10,1,11,6,2,5,0x3e4b55);
+
+    const keys={}; let started=false, locked=false, yaw=0,pitch=0,last=performance.now();
+    const me={id:null,x:0,y:1.6,z:7,ry:0,rx:0}; const remote=new Map();
+    const socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
+    const playersEl=document.getElementById('players');
+    function notice(t){const n=document.getElementById('notice');n.textContent=t;n.classList.add('show');setTimeout(()=>n.classList.remove('show'),1600)}
+    socket.onopen=()=>notice('Connected to server'); socket.onclose=()=>notice('Server disconnected');
+    socket.onmessage=e=>{const m=JSON.parse(e.data); if(m.type==='welcome'){me.id=m.id;(m.players||[]).forEach(p=>p.id!==me.id&&addRemote(p));updateCount()} if(m.type==='join'){addRemote(m.player);updateCount()} if(m.type==='leave'){removeRemote(m.id);updateCount()} if(m.type==='state'&&m.player.id!==me.id){addRemote(m.player)} if(m.type==='shoot'&&m.id!==me.id) flash(m)} };
+    function addRemote(p){let o=remote.get(p.id);if(!o){const g=new THREE.Group();const body=new THREE.Mesh(new THREE.CapsuleGeometry(.38,.9,4,8),new THREE.MeshStandardMaterial({color:0x62a8ff}));body.position.y=.8;g.add(body);scene.add(g);o={g,p};remote.set(p.id,o)}Object.assign(o.p,p);o.g.position.set(p.x,0,p.z);o.g.rotation.y=p.ry||0}
+    function removeRemote(id){const o=remote.get(id);if(o){scene.remove(o.g);remote.delete(id)}} function updateCount(){playersEl.textContent='Players: '+(remote.size+1)}
+    function flash(p){const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(p.x,p.y,p.z),new THREE.Vector3(p.x-Math.sin(p.ry)*5,p.y,p.z-Math.cos(p.ry)*5)]),new THREE.LineBasicMaterial({color:0xffe08a}));scene.add(line);setTimeout(()=>scene.remove(line),80)}
+    addEventListener('keydown',e=>keys[e.code]=true); addEventListener('keyup',e=>keys[e.code]=false);
+    renderer.domElement.addEventListener('click',()=>{if(started)renderer.domElement.requestPointerLock();});
+    document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===renderer.domElement);
+    document.addEventListener('mousemove',e=>{if(!locked)return;yaw-=e.movementX*.0022;pitch-=e.movementY*.0022;pitch=Math.max(-1.35,Math.min(1.35,pitch));me.ry=yaw;me.rx=pitch});
+    addEventListener('mousedown',()=>{if(locked&&socket.readyState===1)socket.send(JSON.stringify({type:'shoot'}));});
+    document.getElementById('start').onclick=()=>{started=true;document.getElementById('menu').classList.add('hidden');renderer.domElement.requestPointerLock()};
+    function move(dt){let x=0,z=0;if(keys.KeyW)z-=1;if(keys.KeyS)z+=1;if(keys.KeyA)x-=1;if(keys.KeyD)x+=1;const len=Math.hypot(x,z)||1;x/=len;z/=len;const s=5*dt;me.x+=(x*Math.cos(yaw)+z*Math.sin(yaw))*s;me.z+=(-x*Math.sin(yaw)+z*Math.cos(yaw))*s;me.x=Math.max(-25,Math.min(25,me.x));me.z=Math.max(-25,Math.min(25,me.z));camera.position.set(me.x,me.y,me.z);camera.rotation.order='YXZ';camera.rotation.y=yaw;camera.rotation.x=pitch}
+    function tick(t){requestAnimationFrame(tick);const dt=Math.min((t-last)/1000,.05);last=t;if(started)move(dt);if(started&&socket.readyState===1)socket.send(JSON.stringify({type:'state',x:me.x,y:me.y,z:me.z,ry:me.ry,rx:me.rx}));renderer.render(scene,camera)} tick(performance.now());
+    addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+  </script>
+</body>
+</html>
