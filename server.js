@@ -1,15 +1,14 @@
 const express = require('express');
 const http = require('http');
-const path = require('path');
 const { WebSocketServer } = require('ws');
 
-const PORT = process.env.PORT || 3000;
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/health', (_req, res) => res.json({ ok: true, players: wss.clients.size }));
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, players: wss.clients.size });
+});
 
 const players = new Map();
 let nextId = 1;
@@ -33,8 +32,8 @@ wss.on('connection', (socket) => {
     rx: 0,
     hp: 100
   };
-  players.set(id, player);
 
+  players.set(id, player);
   socket.send(JSON.stringify({ type: 'welcome', id, players: [...players.values()] }));
   broadcast({ type: 'join', player }, socket);
 
@@ -46,18 +45,18 @@ wss.on('connection', (socket) => {
 
       if (msg.type === 'state') {
         for (const key of ['x', 'y', 'z', 'ry', 'rx']) {
-          if (typeof msg[key] === 'number' && Number.isFinite(msg[key])) current[key] = msg[key];
+          if (typeof msg[key] === 'number' && Number.isFinite(msg[key])) {
+            current[key] = msg[key];
+          }
         }
         broadcast({ type: 'state', player: current }, socket);
       } else if (msg.type === 'name') {
         const name = String(msg.name || '').trim().slice(0, 18);
         if (name) current.name = name;
         broadcast({ type: 'state', player: current });
-      } else if (msg.type === 'shoot') {
-        broadcast({ type: 'shoot', id, x: current.x, y: current.y, z: current.z, ry: current.ry });
       }
     } catch (_) {
-      // Ignore malformed client messages.
+      // Ignore malformed messages.
     }
   });
 
@@ -67,6 +66,12 @@ wss.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`LAN-STRIKE running on http://0.0.0.0:${PORT}`);
-});
+// Vercel uses the exported server. Local Node.js still uses PORT normally.
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`LAN-STRIKE running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+module.exports = server;
